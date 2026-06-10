@@ -10,7 +10,26 @@
       "Bash(python3 -m http.server 8765)",
       "Bash(curl -sI http://localhost:8765/index.html)",
       "mcp__Claude_in_Chrome__tabs_context_mcp",
-      "Bash(curl -s \"http://localhost:8765/\" -o /dev/null -w \"%{http_code}\\\\n\")"
+      "Bash(curl -s \"http://localhost:8765/\" -o /dev/null -w \"%{http_code}\\\\n\")",
+      "Bash(gh auth *)",
+      "Bash(gh repo *)",
+      "Bash(gh api *)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" https://loopphoto.github.io/pokemon_scanner/)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" https://loopphoto.github.io/pokemon_scanner/)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(curl -s https://loopphoto.github.io/pokemon_scanner/app.js)",
+      "Bash(git push *)",
+      "Bash(python3 -c \"import cairosvg\")",
+      "Bash(pip3 install *)",
+      "Bash(node --check /Users/preyenmoodley/GitHub/pokemon_scanner/app.js)",
+      "Bash(node -e \"require\\('fs'\\)\")",
+      "Bash(echo \"exit: $?\")",
+      "Bash(curl -s https://loopphoto.github.io/pokemon_scanner/manifest.json)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" https://loopphoto.github.io/pokemon_scanner/manifest.json)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" https://loopphoto.github.io/pokemon_scanner/icons/icon-180.png)",
+      "Bash(git commit *)",
+      "Bash(curl -s https://loopphoto.github.io/pokemon_scanner/)"
     ]
   }
 }
