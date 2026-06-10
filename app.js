@@ -176,8 +176,24 @@ async function openCardDetail(cardId) {
     if (!res.ok) throw new Error("Not found");
     const card = await res.json();
     detailBody.innerHTML = renderCardDetailHtml(card);
+
+    const authButtons = detailBody.querySelectorAll(".auth-btn");
     const collectBtn = document.getElementById("collect-btn");
-    collectBtn.addEventListener("click", () => toggleCollected(card, collectBtn));
+    const collectedItem = currentItems.find((c) => c.id === card.id);
+
+    authButtons.forEach((b) => {
+      b.addEventListener("click", () => {
+        authButtons.forEach((x) => x.classList.toggle("active", x === b));
+        if (collectedItem) {
+          updateAuthenticity(card.id, b.dataset.auth);
+        }
+      });
+    });
+
+    collectBtn.addEventListener("click", () => {
+      const activeAuth = detailBody.querySelector(".auth-btn.active");
+      toggleCollected(card, collectBtn, activeAuth ? activeAuth.dataset.auth : "real");
+    });
   } catch (err) {
     detailBody.innerHTML = `<div class="empty-msg">Couldn't load this card. Try again!</div>`;
   }
@@ -187,7 +203,9 @@ function renderCardDetailHtml(card) {
   const types = (card.types || []).join(", ") || "—";
   const setName = card.set ? card.set.name : "—";
   const price = getBestPrice(card.pricing);
-  const isCollected = isInCollection(card.id);
+  const collectedItem = currentItems.find((c) => c.id === card.id);
+  const isCollected = !!collectedItem;
+  const authenticity = collectedItem ? collectedItem.authenticity || "real" : "real";
 
   const attacksHtml = (card.attacks || [])
     .map(
@@ -222,6 +240,11 @@ function renderCardDetailHtml(card) {
           </div>`
         : ""
     }
+
+    <div class="authenticity-row">
+      <button class="auth-btn ${authenticity === "real" ? "active" : ""}" data-auth="real">✅ Real</button>
+      <button class="auth-btn ${authenticity === "fake" ? "active" : ""}" data-auth="fake">❌ Fake</button>
+    </div>
 
     <button id="collect-btn" class="collect-btn ${isCollected ? "added" : ""}">
       ${isCollected ? "★ In My Collection (tap to remove)" : "☆ Add to My Collection"}
@@ -263,7 +286,7 @@ function isInCollection(cardId) {
   return currentItems.some((c) => c.id === cardId);
 }
 
-async function toggleCollected(card, btn) {
+async function toggleCollected(card, btn, authenticity) {
   const wasCollected = currentItems.some((c) => c.id === card.id);
   let items;
   if (wasCollected) {
@@ -281,12 +304,14 @@ async function toggleCollected(card, btn) {
         rarity: card.rarity || null,
         types: card.types || [],
         price: getBestPriceData(card.pricing),
+        authenticity: authenticity === "fake" ? "fake" : "real",
       },
     ];
     btn.classList.add("added");
     btn.textContent = "★ In My Collection (tap to remove)";
   }
 
+  const previousItems = currentItems;
   currentItems = items;
   const profileAtSave = currentProfile;
   try {
@@ -294,11 +319,25 @@ async function toggleCollected(card, btn) {
   } catch (err) {
     // Revert on failure
     if (currentProfile === profileAtSave) {
-      currentItems = wasCollected
-        ? [...items, currentItems.find((c) => c.id === card.id)].filter(Boolean)
-        : items.filter((c) => c.id !== card.id);
+      currentItems = previousItems;
       btn.classList.toggle("added", wasCollected);
       btn.textContent = wasCollected ? "★ In My Collection (tap to remove)" : "☆ Add to My Collection";
+    }
+    alert("Couldn't save - check your internet connection and try again.");
+  }
+}
+
+async function updateAuthenticity(cardId, authenticity) {
+  const value = authenticity === "fake" ? "fake" : "real";
+  const previousItems = currentItems;
+  const items = currentItems.map((c) => (c.id === cardId ? { ...c, authenticity: value } : c));
+  currentItems = items;
+  const profileAtSave = currentProfile;
+  try {
+    await saveCollectionRemote(profileAtSave, items);
+  } catch (err) {
+    if (currentProfile === profileAtSave) {
+      currentItems = previousItems;
     }
     alert("Couldn't save - check your internet connection and try again.");
   }
@@ -308,6 +347,17 @@ async function toggleCollected(card, btn) {
 const collectionStatus = document.getElementById("collection-status");
 const collectionStats = document.getElementById("collection-stats");
 const collectionResults = document.getElementById("collection-results");
+const filterButtons = document.querySelectorAll(".filter-btn");
+
+let collectionFilter = "all";
+
+filterButtons.forEach((btn) => {
+  btn.addEventListener("click", () => {
+    collectionFilter = btn.dataset.filter;
+    filterButtons.forEach((b) => b.classList.toggle("active", b === btn));
+    renderCollection();
+  });
+});
 
 const TYPE_EMOJI = {
   Grass: "🌿", Fire: "🔥", Water: "💧", Lightning: "⚡", Psychic: "🔮",
@@ -316,20 +366,33 @@ const TYPE_EMOJI = {
 };
 
 function renderCollection() {
-  const items = currentItems;
+  const allItems = currentItems;
   const profile = currentProfile;
-  if (!items.length) {
+  if (!allItems.length) {
     collectionStatus.textContent = `${profile} has no cards yet! Find a card and tap "Add to My Collection".`;
     collectionStats.innerHTML = "";
     collectionResults.innerHTML = "";
     return;
   }
+
+  const items = allItems.filter((c) => {
+    if (collectionFilter === "all") return true;
+    return (c.authenticity || "real") === collectionFilter;
+  });
+
+  if (!items.length) {
+    collectionStatus.textContent = `${profile}'s collection: 0 ${collectionFilter} cards`;
+    collectionStats.innerHTML = "";
+    collectionResults.innerHTML = "";
+    return;
+  }
+
   collectionStatus.textContent = `${profile}'s collection: ${items.length} card${items.length === 1 ? "" : "s"}`;
-  collectionStats.innerHTML = renderStatsHtml(items);
+  collectionStats.innerHTML = renderStatsHtml(items, allItems);
   renderCardGrid(collectionResults, items);
 }
 
-function renderStatsHtml(items) {
+function renderStatsHtml(items, allItems) {
   // Total estimated value (USD only, since that's the most common currency)
   const usdItems = items.filter((c) => c.price && c.price.currency === "USD");
   const totalValue = usdItems.reduce((sum, c) => sum + c.price.value, 0);
@@ -362,6 +425,11 @@ function renderStatsHtml(items) {
 
   const cards = [];
   cards.push(`<div class="stat-card"><div class="stat-value">${items.length}</div><div class="stat-label">Total Cards</div></div>`);
+  if (allItems) {
+    const realCount = allItems.filter((c) => (c.authenticity || "real") === "real").length;
+    const fakeCount = allItems.filter((c) => c.authenticity === "fake").length;
+    cards.push(`<div class="stat-card"><div class="stat-value">✅ ${realCount} · ❌ ${fakeCount}</div><div class="stat-label">Real vs Fake</div></div>`);
+  }
   cards.push(`<div class="stat-card"><div class="stat-value">${uniqueSets.size}</div><div class="stat-label">Sets Collected</div></div>`);
   if (totalValue > 0) {
     cards.push(`<div class="stat-card highlight"><div class="stat-value">$${totalValue.toFixed(2)}</div><div class="stat-label">Estimated Value</div></div>`);

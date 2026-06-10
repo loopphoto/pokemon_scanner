@@ -4,6 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Card Finder</title>
+<link rel="icon" href="favicon.png" type="image/png">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="manifest" href="manifest.json">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Card Finder">
+<meta name="theme-color" content="#2d6cdf">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -36,6 +42,11 @@
     <!-- COLLECTION TAB -->
     <section id="collection-tab" class="tab-panel">
       <div id="collection-status" class="status"></div>
+      <div class="filter-row">
+        <button class="filter-btn active" data-filter="all">All</button>
+        <button class="filter-btn" data-filter="real">✅ Real</button>
+        <button class="filter-btn" data-filter="fake">❌ Fake</button>
+      </div>
       <div id="collection-stats" class="stats-grid"></div>
       <div id="collection-results" class="card-grid"></div>
     </section>

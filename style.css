@@ -127,6 +127,30 @@ main {
   color: #5a5a5a;
 }
 
+.filter-row {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  margin-bottom: 14px;
+}
+
+.filter-btn {
+  font-size: 1rem;
+  font-weight: 600;
+  padding: 10px 18px;
+  border: none;
+  border-radius: 12px;
+  background: white;
+  color: #555;
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+}
+
+.filter-btn.active {
+  background: #2d6cdf;
+  color: white;
+}
+
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
@@ -298,6 +322,36 @@ main {
   font-size: 1.6rem;
   font-weight: 800;
   color: #2e7d32;
+}
+
+.authenticity-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.auth-btn {
+  flex: 1;
+  font-size: 1rem;
+  font-weight: 700;
+  padding: 12px;
+  border: 2px solid #ddd;
+  border-radius: 14px;
+  background: white;
+  color: #777;
+  cursor: pointer;
+}
+
+.auth-btn.active[data-auth="real"] {
+  border-color: #2e7d32;
+  background: #e8f5e9;
+  color: #2e7d32;
+}
+
+.auth-btn.active[data-auth="fake"] {
+  border-color: #c0392b;
+  background: #fdecea;
+  color: #c0392b;
 }
 
 .collect-btn {
