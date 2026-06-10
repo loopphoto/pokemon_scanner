@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Card Finder</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <h1>⚡ Card Finder</h1>
+    <div class="profile-switcher">
+      <span class="profile-label">Who's playing?</span>
+      <div class="profile-buttons">
+        <button class="profile-btn" data-profile="Reece">Reece</button>
+        <button class="profile-btn" data-profile="Aria">Aria</button>
+        <button class="profile-btn" data-profile="Kyra">Kyra</button>
+      </div>
+    </div>
+    <nav class="tabs">
+      <button class="tab-btn active" data-tab="search">🔍 Search</button>
+      <button class="tab-btn" data-tab="collection">⭐ My Collection</button>
+    </nav>
+  </header>
+
+  <main>
+    <!-- SEARCH TAB -->
+    <section id="search-tab" class="tab-panel active">
+      <div class="search-bar">
+        <input id="search-input" type="text" placeholder="Type a Pokémon name..." autocomplete="off">
+      </div>
+      <div id="search-status" class="status"></div>
+      <div id="search-results" class="card-grid"></div>
+    </section>
+
+    <!-- COLLECTION TAB -->
+    <section id="collection-tab" class="tab-panel">
+      <div id="collection-status" class="status"></div>
+      <div id="collection-stats" class="stats-grid"></div>
+      <div id="collection-results" class="card-grid"></div>
+    </section>
+  </main>
+
+  <!-- CARD DETAIL MODAL -->
+  <div id="detail-modal" class="modal">
+    <div class="modal-content">
+      <button id="close-modal" class="close-btn">✕</button>
+      <div id="detail-body"></div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

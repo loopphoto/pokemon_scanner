@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:tcgdex.dev)",
+      "Bash(curl -s \"https://api.tcgdex.net/v2/en/cards?name=pikachu\")",
+      "Bash(curl -s \"https://api.tcgdex.net/v2/en/cards/cel25-5\")",
+      "Bash(curl -sI \"https://assets.tcgdex.net/en/swsh/cel25/5/high.png\")",
+      "Bash(curl -sI \"https://assets.tcgdex.net/en/swsh/cel25/5/low.webp\")",
+      "Bash(curl -sI \"https://assets.tcgdex.net/en/swsh/cel25/5/high.webp\")",
+      "Bash(python3 -m http.server 8765)",
+      "Bash(curl -sI http://localhost:8765/index.html)",
+      "mcp__Claude_in_Chrome__tabs_context_mcp",
+      "Bash(curl -s \"http://localhost:8765/\" -o /dev/null -w \"%{http_code}\\\\n\")"
+    ]
+  }
+}
