@@ -1,7 +1,48 @@
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
+import { getFirestore, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyDmIBfUtxHfAf_tnul6EAYK3cKoAclTcH4",
+  authDomain: "pokemon-card-finder-22e45.firebaseapp.com",
+  projectId: "pokemon-card-finder-22e45",
+  storageBucket: "pokemon-card-finder-22e45.firebasestorage.app",
+  messagingSenderId: "1005788207712",
+  appId: "1:1005788207712:web:cecc779eb67435165cc105",
+};
+
+const firebaseApp = initializeApp(firebaseConfig);
+const db = getFirestore(firebaseApp);
+
 const API_BASE = "https://api.tcgdex.net/v2/en";
-const COLLECTION_KEY_PREFIX = "pokemonCardCollection_";
+const COLLECTION_KEY_PREFIX = "pokemonCardCollection_"; // legacy localStorage key, used for one-time migration
 const PROFILES = ["Reece", "Aria", "Kyra"];
 const ACTIVE_PROFILE_KEY = "pokemonCardActiveProfile";
+
+// ---------- Cloud Collection Storage ----------
+let currentProfile = null;
+let currentItems = [];
+let currentLoadPromise = Promise.resolve();
+
+async function loadCollectionForProfile(profile) {
+  const ref = doc(db, "collections", profile);
+  const snap = await getDoc(ref);
+  if (snap.exists()) {
+    return snap.data().items || [];
+  }
+  // One-time migration from any older localStorage data on this device
+  try {
+    const legacy = JSON.parse(localStorage.getItem(COLLECTION_KEY_PREFIX + profile));
+    if (Array.isArray(legacy) && legacy.length) {
+      await setDoc(ref, { items: legacy });
+      return legacy;
+    }
+  } catch {}
+  return [];
+}
+
+async function saveCollectionRemote(profile, items) {
+  await setDoc(doc(db, "collections", profile), { items });
+}
 
 // ---------- Profiles ----------
 const profileButtons = document.querySelectorAll(".profile-btn");
@@ -13,9 +54,30 @@ function getActiveProfile() {
 function setActiveProfile(name) {
   localStorage.setItem(ACTIVE_PROFILE_KEY, name);
   profileButtons.forEach((b) => b.classList.toggle("active", b.dataset.profile === name));
-  if (document.getElementById("collection-tab").classList.contains("active")) {
-    renderCollection();
+  currentProfile = name;
+  currentItems = [];
+
+  const collectionTabActive = document.getElementById("collection-tab").classList.contains("active");
+  if (collectionTabActive) {
+    collectionStatus.textContent = "Loading...";
+    collectionStats.innerHTML = "";
+    collectionResults.innerHTML = "";
   }
+
+  currentLoadPromise = loadCollectionForProfile(name)
+    .then((items) => {
+      currentItems = items;
+      if (currentProfile === name && document.getElementById("collection-tab").classList.contains("active")) {
+        renderCollection();
+      }
+    })
+    .catch(() => {
+      if (currentProfile === name && document.getElementById("collection-tab").classList.contains("active")) {
+        collectionStatus.textContent = "Couldn't load collection. Check your connection and try again.";
+      }
+    });
+
+  return currentLoadPromise;
 }
 
 profileButtons.forEach((btn) => {
@@ -29,12 +91,18 @@ const tabButtons = document.querySelectorAll(".tab-btn");
 const tabPanels = document.querySelectorAll(".tab-panel");
 
 tabButtons.forEach((btn) => {
-  btn.addEventListener("click", () => {
+  btn.addEventListener("click", async () => {
     tabButtons.forEach((b) => b.classList.remove("active"));
     tabPanels.forEach((p) => p.classList.remove("active"));
     btn.classList.add("active");
     document.getElementById(`${btn.dataset.tab}-tab`).classList.add("active");
-    if (btn.dataset.tab === "collection") renderCollection();
+    if (btn.dataset.tab === "collection") {
+      collectionStatus.textContent = "Loading...";
+      collectionStats.innerHTML = "";
+      collectionResults.innerHTML = "";
+      await currentLoadPromise;
+      renderCollection();
+    }
   });
 });
 
@@ -103,6 +171,7 @@ async function openCardDetail(cardId) {
   detailBody.innerHTML = `<div class="empty-msg">Loading...</div>`;
   modal.classList.add("open");
   try {
+    await currentLoadPromise;
     const res = await fetch(`${API_BASE}/cards/${encodeURIComponent(cardId)}`);
     if (!res.ok) throw new Error("Not found");
     const card = await res.json();
@@ -185,43 +254,54 @@ function getBestPrice(pricing) {
   return formatPrice(getBestPriceData(pricing));
 }
 
-// ---------- Collection (localStorage) ----------
+// ---------- Collection (cloud-backed via Firestore) ----------
 function getCollection() {
-  try {
-    return JSON.parse(localStorage.getItem(COLLECTION_KEY_PREFIX + getActiveProfile())) || [];
-  } catch {
-    return [];
-  }
-}
-
-function saveCollection(items) {
-  localStorage.setItem(COLLECTION_KEY_PREFIX + getActiveProfile(), JSON.stringify(items));
+  return currentItems;
 }
 
 function isInCollection(cardId) {
-  return getCollection().some((c) => c.id === cardId);
+  return currentItems.some((c) => c.id === cardId);
 }
 
-function toggleCollected(card, btn) {
-  let items = getCollection();
-  if (items.some((c) => c.id === card.id)) {
-    items = items.filter((c) => c.id !== card.id);
+async function toggleCollected(card, btn) {
+  const wasCollected = currentItems.some((c) => c.id === card.id);
+  let items;
+  if (wasCollected) {
+    items = currentItems.filter((c) => c.id !== card.id);
     btn.classList.remove("added");
     btn.textContent = "☆ Add to My Collection";
   } else {
-    items.push({
-      id: card.id,
-      name: card.name,
-      image: card.image,
-      set: card.set ? card.set.name : "",
-      rarity: card.rarity || null,
-      types: card.types || [],
-      price: getBestPriceData(card.pricing),
-    });
+    items = [
+      ...currentItems,
+      {
+        id: card.id,
+        name: card.name,
+        image: card.image,
+        set: card.set ? card.set.name : "",
+        rarity: card.rarity || null,
+        types: card.types || [],
+        price: getBestPriceData(card.pricing),
+      },
+    ];
     btn.classList.add("added");
     btn.textContent = "★ In My Collection (tap to remove)";
   }
-  saveCollection(items);
+
+  currentItems = items;
+  const profileAtSave = currentProfile;
+  try {
+    await saveCollectionRemote(profileAtSave, items);
+  } catch (err) {
+    // Revert on failure
+    if (currentProfile === profileAtSave) {
+      currentItems = wasCollected
+        ? [...items, currentItems.find((c) => c.id === card.id)].filter(Boolean)
+        : items.filter((c) => c.id !== card.id);
+      btn.classList.toggle("added", wasCollected);
+      btn.textContent = wasCollected ? "★ In My Collection (tap to remove)" : "☆ Add to My Collection";
+    }
+    alert("Couldn't save - check your internet connection and try again.");
+  }
 }
 
 // ---------- Collection Tab ----------
@@ -236,8 +316,8 @@ const TYPE_EMOJI = {
 };
 
 function renderCollection() {
-  const items = getCollection();
-  const profile = getActiveProfile();
+  const items = currentItems;
+  const profile = currentProfile;
   if (!items.length) {
     collectionStatus.textContent = `${profile} has no cards yet! Find a card and tap "Add to My Collection".`;
     collectionStats.innerHTML = "";

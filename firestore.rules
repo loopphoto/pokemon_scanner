@@ -1,0 +1,10 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /collections/{profile} {
+      allow read, write: if profile in ['Reece', 'Aria', 'Kyra']
+        && request.resource.data.keys().hasOnly(['items'])
+        && request.resource.data.items is list;
+    }
+  }
+}
