@@ -47,6 +47,14 @@
         <button class="filter-btn" data-filter="real">✅ Real</button>
         <button class="filter-btn" data-filter="fake">❌ Fake</button>
       </div>
+      <div class="sort-row">
+        <label for="sort-select">Sort by</label>
+        <select id="sort-select">
+          <option value="added">Order Added</option>
+          <option value="value-desc">Value: High to Low</option>
+          <option value="value-asc">Value: Low to High</option>
+        </select>
+      </div>
       <div id="collection-stats" class="stats-grid"></div>
       <div id="collection-results" class="card-grid"></div>
     </section>
@@ -60,6 +68,6 @@
     </div>
   </div>
 
-  <script type="module" src="app.js?v=2"></script>
+  <script type="module" src="app.js?v=3"></script>
 </body>
 </html>

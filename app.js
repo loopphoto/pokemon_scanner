@@ -18,6 +18,54 @@ const COLLECTION_KEY_PREFIX = "pokemonCardCollection_"; // legacy localStorage k
 const PROFILES = ["Reece", "Aria", "Kyra"];
 const ACTIVE_PROFILE_KEY = "pokemonCardActiveProfile";
 
+// ---------- Currency conversion (ZAR) ----------
+const EXCHANGE_RATE_KEY = "pokemonCardExchangeRates";
+const EXCHANGE_RATE_MAX_AGE = 24 * 60 * 60 * 1000; // 1 day
+
+// Approximate fallback rates, used until (or unless) a live rate is fetched
+let exchangeRates = { USD: 18.5, EUR: 20.0 };
+
+function loadCachedExchangeRates() {
+  try {
+    const cached = JSON.parse(localStorage.getItem(EXCHANGE_RATE_KEY));
+    if (cached && cached.rates && Date.now() - cached.timestamp < EXCHANGE_RATE_MAX_AGE) {
+      exchangeRates = cached.rates;
+    }
+  } catch {}
+}
+
+async function refreshExchangeRates() {
+  try {
+    const res = await fetch("https://api.frankfurter.dev/v1/latest?from=EUR&to=USD,ZAR");
+    if (!res.ok) throw new Error("rate fetch failed");
+    const data = await res.json();
+    const eurToZar = data.rates && data.rates.ZAR;
+    const eurToUsd = data.rates && data.rates.USD;
+    if (eurToZar && eurToUsd) {
+      exchangeRates = { USD: eurToZar / eurToUsd, EUR: eurToZar };
+      localStorage.setItem(EXCHANGE_RATE_KEY, JSON.stringify({ timestamp: Date.now(), rates: exchangeRates }));
+      if (document.getElementById("collection-tab").classList.contains("active")) {
+        renderCollection();
+      }
+    }
+  } catch {
+    // keep using cached/fallback rates
+  }
+}
+
+function toZAR(priceData) {
+  if (!priceData) return null;
+  const rate = exchangeRates[priceData.currency];
+  return rate ? priceData.value * rate : null;
+}
+
+function formatZAR(value) {
+  return `R${value.toFixed(2)}`;
+}
+
+loadCachedExchangeRates();
+refreshExchangeRates();
+
 // ---------- Cloud Collection Storage ----------
 let currentProfile = null;
 let currentItems = [];
@@ -202,7 +250,6 @@ async function openCardDetail(cardId) {
 function renderCardDetailHtml(card) {
   const types = (card.types || []).join(", ") || "—";
   const setName = card.set ? card.set.name : "—";
-  const price = getBestPrice(card.pricing);
   const collectedItem = currentItems.find((c) => c.id === card.id);
   const isCollected = !!collectedItem;
   const authenticity = collectedItem ? collectedItem.authenticity || "real" : "real";
@@ -232,14 +279,7 @@ function renderCardDetailHtml(card) {
 
     ${attacksHtml}
 
-    ${
-      price
-        ? `<div class="price-box">
-            <div>Estimated Value</div>
-            <div class="price-value">${price}</div>
-          </div>`
-        : ""
-    }
+    ${formatPriceBoxHtml(getBestPriceData(card.pricing))}
 
     <div class="authenticity-row">
       <button class="auth-btn ${authenticity === "real" ? "active" : ""}" data-auth="real">✅ Real</button>
@@ -268,13 +308,26 @@ function getBestPriceData(pricing) {
   return null;
 }
 
-function formatPrice(priceData) {
-  if (!priceData) return null;
+function formatOriginalPrice(priceData) {
   return `${priceData.symbol}${priceData.value.toFixed(2)} ${priceData.currency}`;
 }
 
-function getBestPrice(pricing) {
-  return formatPrice(getBestPriceData(pricing));
+function formatPrice(priceData) {
+  if (!priceData) return null;
+  const zar = toZAR(priceData);
+  const original = formatOriginalPrice(priceData);
+  return zar != null ? `${formatZAR(zar)} (${original})` : original;
+}
+
+function formatPriceBoxHtml(priceData) {
+  if (!priceData) return "";
+  const zar = toZAR(priceData);
+  const original = formatOriginalPrice(priceData);
+  return `<div class="price-box">
+    <div>Estimated Value</div>
+    <div class="price-value">${zar != null ? formatZAR(zar) : original}</div>
+    ${zar != null ? `<div class="price-original">${original}</div>` : ""}
+  </div>`;
 }
 
 // ---------- Collection (cloud-backed via Firestore) ----------
@@ -348,8 +401,10 @@ const collectionStatus = document.getElementById("collection-status");
 const collectionStats = document.getElementById("collection-stats");
 const collectionResults = document.getElementById("collection-results");
 const filterButtons = document.querySelectorAll(".filter-btn");
+const sortSelect = document.getElementById("sort-select");
 
 let collectionFilter = "all";
+let collectionSort = "added";
 
 filterButtons.forEach((btn) => {
   btn.addEventListener("click", () => {
@@ -358,6 +413,25 @@ filterButtons.forEach((btn) => {
     renderCollection();
   });
 });
+
+sortSelect.addEventListener("change", () => {
+  collectionSort = sortSelect.value;
+  renderCollection();
+});
+
+function sortItems(items) {
+  if (collectionSort === "added") return items;
+  const sorted = [...items];
+  sorted.sort((a, b) => {
+    const av = toZAR(a.price);
+    const bv = toZAR(b.price);
+    if (av == null && bv == null) return 0;
+    if (av == null) return 1;
+    if (bv == null) return -1;
+    return collectionSort === "value-asc" ? av - bv : bv - av;
+  });
+  return sorted;
+}
 
 const TYPE_EMOJI = {
   Grass: "🌿", Fire: "🔥", Water: "💧", Lightning: "⚡", Psychic: "🔮",
@@ -389,13 +463,13 @@ function renderCollection() {
 
   collectionStatus.textContent = `${profile}'s collection: ${items.length} card${items.length === 1 ? "" : "s"}`;
   collectionStats.innerHTML = renderStatsHtml(items, allItems);
-  renderCardGrid(collectionResults, items);
+  renderCardGrid(collectionResults, sortItems(items));
 }
 
 function renderStatsHtml(items, allItems) {
-  // Total estimated value (USD only, since that's the most common currency)
-  const usdItems = items.filter((c) => c.price && c.price.currency === "USD");
-  const totalValue = usdItems.reduce((sum, c) => sum + c.price.value, 0);
+  // Total estimated value, converted to ZAR so cards in different currencies add up
+  const pricedItems = items.filter((c) => c.price);
+  const totalValueZAR = pricedItems.reduce((sum, c) => sum + (toZAR(c.price) || 0), 0);
 
   // Unique sets
   const uniqueSets = new Set(items.map((c) => c.set).filter(Boolean));
@@ -405,10 +479,11 @@ function renderStatsHtml(items, allItems) {
   items.forEach((c) => (c.types || []).forEach((t) => (typeCounts[t] = (typeCounts[t] || 0) + 1)));
   const favoriteType = Object.entries(typeCounts).sort((a, b) => b[1] - a[1])[0];
 
-  // Most valuable card
+  // Most valuable card (compared in ZAR so currencies are on equal footing)
   let mostValuable = null;
-  usdItems.forEach((c) => {
-    if (!mostValuable || c.price.value > mostValuable.price.value) mostValuable = c;
+  pricedItems.forEach((c) => {
+    const zar = toZAR(c.price) || 0;
+    if (!mostValuable || zar > (toZAR(mostValuable.price) || 0)) mostValuable = c;
   });
 
   // Rarest-sounding card (anything with "Rare"/"Holo"/"Ultra"/"Secret" wins, prefer longer rarity name)
@@ -431,8 +506,8 @@ function renderStatsHtml(items, allItems) {
     cards.push(`<div class="stat-card"><div class="stat-value">✅ ${realCount} · ❌ ${fakeCount}</div><div class="stat-label">Real vs Fake</div></div>`);
   }
   cards.push(`<div class="stat-card"><div class="stat-value">${uniqueSets.size}</div><div class="stat-label">Sets Collected</div></div>`);
-  if (totalValue > 0) {
-    cards.push(`<div class="stat-card highlight"><div class="stat-value">$${totalValue.toFixed(2)}</div><div class="stat-label">Estimated Value</div></div>`);
+  if (totalValueZAR > 0) {
+    cards.push(`<div class="stat-card highlight"><div class="stat-value">${formatZAR(totalValueZAR)}</div><div class="stat-label">Estimated Value</div></div>`);
   }
   if (favoriteType) {
     const emoji = TYPE_EMOJI[favoriteType[0]] || "🎴";
