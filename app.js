@@ -195,6 +195,7 @@ function renderCardGrid(container, cards) {
     tile.className = "card-tile";
     tile.innerHTML = `
       <img src="${card.image}/low.webp" alt="${escapeHtml(card.name)}" loading="lazy">
+      ${card.quantity > 1 ? `<div class="qty-badge">×${card.quantity}</div>` : ""}
       <div class="card-name">${escapeHtml(card.name)}</div>
     `;
     tile.addEventListener("click", () => openCardDetail(card.id));
@@ -224,24 +225,7 @@ async function openCardDetail(cardId) {
     if (!res.ok) throw new Error("Not found");
     const card = await res.json();
     detailBody.innerHTML = renderCardDetailHtml(card);
-
-    const authButtons = detailBody.querySelectorAll(".auth-btn");
-    const collectBtn = document.getElementById("collect-btn");
-    const collectedItem = currentItems.find((c) => c.id === card.id);
-
-    authButtons.forEach((b) => {
-      b.addEventListener("click", () => {
-        authButtons.forEach((x) => x.classList.toggle("active", x === b));
-        if (collectedItem) {
-          updateAuthenticity(card.id, b.dataset.auth);
-        }
-      });
-    });
-
-    collectBtn.addEventListener("click", () => {
-      const activeAuth = detailBody.querySelector(".auth-btn.active");
-      toggleCollected(card, collectBtn, activeAuth ? activeAuth.dataset.auth : "real");
-    });
+    attachCollectControlsListeners(card);
   } catch (err) {
     detailBody.innerHTML = `<div class="empty-msg">Couldn't load this card. Try again!</div>`;
   }
@@ -250,9 +234,6 @@ async function openCardDetail(cardId) {
 function renderCardDetailHtml(card) {
   const types = (card.types || []).join(", ") || "—";
   const setName = card.set ? card.set.name : "—";
-  const collectedItem = currentItems.find((c) => c.id === card.id);
-  const isCollected = !!collectedItem;
-  const authenticity = collectedItem ? collectedItem.authenticity || "real" : "real";
 
   const attacksHtml = (card.attacks || [])
     .map(
@@ -281,15 +262,76 @@ function renderCardDetailHtml(card) {
 
     ${formatPriceBoxHtml(getBestPriceData(card.pricing))}
 
+    <div id="collect-controls">${renderCollectControlsHtml(card)}</div>
+  `;
+}
+
+function renderCollectControlsHtml(card) {
+  const collectedItem = currentItems.find((c) => c.id === card.id);
+  const isCollected = !!collectedItem;
+  const authenticity = collectedItem ? collectedItem.authenticity || "real" : "real";
+  const quantity = collectedItem ? getQuantity(collectedItem) : 0;
+
+  return `
     <div class="authenticity-row">
       <button class="auth-btn ${authenticity === "real" ? "active" : ""}" data-auth="real">✅ Real</button>
       <button class="auth-btn ${authenticity === "fake" ? "active" : ""}" data-auth="fake">❌ Fake</button>
     </div>
 
-    <button id="collect-btn" class="collect-btn ${isCollected ? "added" : ""}">
-      ${isCollected ? "★ In My Collection (tap to remove)" : "☆ Add to My Collection"}
-    </button>
+    ${
+      isCollected
+        ? `<div class="collect-row">
+            <button id="qty-minus" class="qty-btn">−</button>
+            <div class="collect-status">★ In My Collection${quantity > 1 ? ` ×${quantity}` : ""}</div>
+            <button id="qty-plus" class="qty-btn">+</button>
+          </div>`
+        : `<button id="collect-btn" class="collect-btn">☆ Add to My Collection</button>`
+    }
   `;
+}
+
+function attachCollectControlsListeners(card) {
+  const container = document.getElementById("collect-controls");
+
+  container.querySelectorAll(".auth-btn").forEach((b) => {
+    b.addEventListener("click", () => {
+      container.querySelectorAll(".auth-btn").forEach((x) => x.classList.toggle("active", x === b));
+      const collectedItem = currentItems.find((c) => c.id === card.id);
+      if (collectedItem) {
+        updateAuthenticity(card.id, b.dataset.auth);
+      }
+    });
+  });
+
+  const collectBtn = container.querySelector("#collect-btn");
+  if (collectBtn) {
+    collectBtn.addEventListener("click", async () => {
+      const activeAuth = container.querySelector(".auth-btn.active");
+      await addToCollection(card, activeAuth ? activeAuth.dataset.auth : "real");
+      refreshCollectControls(card);
+    });
+  }
+
+  const qtyMinus = container.querySelector("#qty-minus");
+  const qtyPlus = container.querySelector("#qty-plus");
+  if (qtyMinus) {
+    qtyMinus.addEventListener("click", async () => {
+      await changeQuantity(card.id, -1);
+      refreshCollectControls(card);
+    });
+  }
+  if (qtyPlus) {
+    qtyPlus.addEventListener("click", async () => {
+      await changeQuantity(card.id, 1);
+      refreshCollectControls(card);
+    });
+  }
+}
+
+function refreshCollectControls(card) {
+  const container = document.getElementById("collect-controls");
+  container.innerHTML = renderCollectControlsHtml(card);
+  attachCollectControlsListeners(card);
 }
 
 function getBestPriceData(pricing) {
@@ -331,69 +373,58 @@ function formatPriceBoxHtml(priceData) {
 }
 
 // ---------- Collection (cloud-backed via Firestore) ----------
-function getCollection() {
-  return currentItems;
+function getQuantity(item) {
+  return item.quantity || 1;
 }
 
-function isInCollection(cardId) {
-  return currentItems.some((c) => c.id === cardId);
-}
-
-async function toggleCollected(card, btn, authenticity) {
-  const wasCollected = currentItems.some((c) => c.id === card.id);
-  let items;
-  if (wasCollected) {
-    items = currentItems.filter((c) => c.id !== card.id);
-    btn.classList.remove("added");
-    btn.textContent = "☆ Add to My Collection";
-  } else {
-    items = [
-      ...currentItems,
-      {
-        id: card.id,
-        name: card.name,
-        image: card.image,
-        set: card.set ? card.set.name : "",
-        rarity: card.rarity || null,
-        types: card.types || [],
-        price: getBestPriceData(card.pricing),
-        authenticity: authenticity === "fake" ? "fake" : "real",
-      },
-    ];
-    btn.classList.add("added");
-    btn.textContent = "★ In My Collection (tap to remove)";
-  }
-
+async function applyItemsUpdate(items) {
   const previousItems = currentItems;
   currentItems = items;
   const profileAtSave = currentProfile;
   try {
     await saveCollectionRemote(profileAtSave, items);
   } catch (err) {
-    // Revert on failure
     if (currentProfile === profileAtSave) {
       currentItems = previousItems;
-      btn.classList.toggle("added", wasCollected);
-      btn.textContent = wasCollected ? "★ In My Collection (tap to remove)" : "☆ Add to My Collection";
     }
     alert("Couldn't save - check your internet connection and try again.");
   }
+  if (document.getElementById("collection-tab").classList.contains("active")) {
+    renderCollection();
+  }
+}
+
+async function addToCollection(card, authenticity) {
+  await applyItemsUpdate([
+    ...currentItems,
+    {
+      id: card.id,
+      name: card.name,
+      image: card.image,
+      set: card.set ? card.set.name : "",
+      rarity: card.rarity || null,
+      types: card.types || [],
+      price: getBestPriceData(card.pricing),
+      authenticity: authenticity === "fake" ? "fake" : "real",
+      quantity: 1,
+    },
+  ]);
+}
+
+async function changeQuantity(cardId, delta) {
+  const existing = currentItems.find((c) => c.id === cardId);
+  if (!existing) return;
+  const newQuantity = getQuantity(existing) + delta;
+  const items =
+    newQuantity <= 0
+      ? currentItems.filter((c) => c.id !== cardId)
+      : currentItems.map((c) => (c.id === cardId ? { ...c, quantity: newQuantity } : c));
+  await applyItemsUpdate(items);
 }
 
 async function updateAuthenticity(cardId, authenticity) {
   const value = authenticity === "fake" ? "fake" : "real";
-  const previousItems = currentItems;
-  const items = currentItems.map((c) => (c.id === cardId ? { ...c, authenticity: value } : c));
-  currentItems = items;
-  const profileAtSave = currentProfile;
-  try {
-    await saveCollectionRemote(profileAtSave, items);
-  } catch (err) {
-    if (currentProfile === profileAtSave) {
-      currentItems = previousItems;
-    }
-    alert("Couldn't save - check your internet connection and try again.");
-  }
+  await applyItemsUpdate(currentItems.map((c) => (c.id === cardId ? { ...c, authenticity: value } : c)));
 }
 
 // ---------- Collection Tab ----------
@@ -461,22 +492,25 @@ function renderCollection() {
     return;
   }
 
-  collectionStatus.textContent = `${profile}'s collection: ${items.length} card${items.length === 1 ? "" : "s"}`;
+  const totalQuantity = items.reduce((sum, c) => sum + getQuantity(c), 0);
+  collectionStatus.textContent = `${profile}'s collection: ${totalQuantity} card${totalQuantity === 1 ? "" : "s"}`;
   collectionStats.innerHTML = renderStatsHtml(items, allItems);
   renderCardGrid(collectionResults, sortItems(items));
 }
 
 function renderStatsHtml(items, allItems) {
-  // Total estimated value, converted to ZAR so cards in different currencies add up
+  const totalQuantity = items.reduce((sum, c) => sum + getQuantity(c), 0);
+
+  // Total estimated value, converted to ZAR and weighted by how many of each card is owned
   const pricedItems = items.filter((c) => c.price);
-  const totalValueZAR = pricedItems.reduce((sum, c) => sum + (toZAR(c.price) || 0), 0);
+  const totalValueZAR = pricedItems.reduce((sum, c) => sum + (toZAR(c.price) || 0) * getQuantity(c), 0);
 
   // Unique sets
   const uniqueSets = new Set(items.map((c) => c.set).filter(Boolean));
 
-  // Favorite type (most common)
+  // Favorite type (most common, weighted by quantity)
   const typeCounts = {};
-  items.forEach((c) => (c.types || []).forEach((t) => (typeCounts[t] = (typeCounts[t] || 0) + 1)));
+  items.forEach((c) => (c.types || []).forEach((t) => (typeCounts[t] = (typeCounts[t] || 0) + getQuantity(c))));
   const favoriteType = Object.entries(typeCounts).sort((a, b) => b[1] - a[1])[0];
 
   // Most valuable card (compared in ZAR so currencies are on equal footing)
@@ -499,10 +533,10 @@ function renderStatsHtml(items, allItems) {
   });
 
   const cards = [];
-  cards.push(`<div class="stat-card"><div class="stat-value">${items.length}</div><div class="stat-label">Total Cards</div></div>`);
+  cards.push(`<div class="stat-card"><div class="stat-value">${totalQuantity}</div><div class="stat-label">Total Cards</div></div>`);
   if (allItems) {
-    const realCount = allItems.filter((c) => (c.authenticity || "real") === "real").length;
-    const fakeCount = allItems.filter((c) => c.authenticity === "fake").length;
+    const realCount = allItems.filter((c) => (c.authenticity || "real") === "real").reduce((sum, c) => sum + getQuantity(c), 0);
+    const fakeCount = allItems.filter((c) => c.authenticity === "fake").reduce((sum, c) => sum + getQuantity(c), 0);
     cards.push(`<div class="stat-card"><div class="stat-value">✅ ${realCount} · ❌ ${fakeCount}</div><div class="stat-label">Real vs Fake</div></div>`);
   }
   cards.push(`<div class="stat-card"><div class="stat-value">${uniqueSets.size}</div><div class="stat-label">Sets Collected</div></div>`);
@@ -517,7 +551,8 @@ function renderStatsHtml(items, allItems) {
     cards.push(`<div class="stat-card highlight"><div class="stat-value">${escapeHtml(rarestCard.rarity)}</div><div class="stat-label">Rarest Card: ${escapeHtml(rarestCard.name)}</div></div>`);
   }
   if (mostValuable) {
-    cards.push(`<div class="stat-card highlight"><div class="stat-value">${formatPrice(mostValuable.price)}</div><div class="stat-label">Most Valuable: ${escapeHtml(mostValuable.name)}</div></div>`);
+    const qtyLabel = getQuantity(mostValuable) > 1 ? ` ×${getQuantity(mostValuable)}` : "";
+    cards.push(`<div class="stat-card highlight"><div class="stat-value">${formatPrice(mostValuable.price)}</div><div class="stat-label">Most Valuable: ${escapeHtml(mostValuable.name)}${qtyLabel}</div></div>`);
   }
 
   return cards.join("");
